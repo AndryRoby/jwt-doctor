@@ -1,0 +1,30 @@
+{
+  "name": "JWT Doctor",
+  "short_name": "JWT Doctor",
+  "description": "Decode a JWT and see exactly why it fails: jwt malformed, invalid signature, jwt expired, algorithm confusion, issuer/audience mismatches. Verifies HS256/384/512, RS256/384/512, PS256/384/512 and ES256/384/512 with Web Crypto. Free, client-side, nothing leaves your browser.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f2ea",
+  "theme_color": "#f6f2ea",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
