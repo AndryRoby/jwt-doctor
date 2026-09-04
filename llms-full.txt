@@ -1,0 +1,174 @@
+# JWT Doctor: decode and diagnose a JSON Web Token
+
+> Free, client-side checker that decodes a JWT, flags exactly what's wrong with it, and verifies its signature against a pasted secret or public key: entirely in your browser, via native WebCrypto.
+
+Paste any JWT (with or without a `Bearer ` prefix) and, optionally, the secret or public key it should have been signed with. The tool decodes the header and payload, runs every check below against RFC 7519 (JWT) and RFC 7515 (JWS), and: if you supplied a key: verifies the signature itself. Nothing about your token, secret, or key is sent anywhere; the only network activity is loading the page's own static assets and anonymous Umami analytics events.
+
+## What it checks
+
+Each item below is a `code` the engine (`doctor-jwt.js`) returns from `diagnose()`, in `problems[]`, each with a `severity` of `high`, `medium`, `low`, or `info`.
+
+**Paste artifacts, stripped before decoding:**
+- `bearer_prefix_present` (`medium`): the pasted value started with `Bearer ` (an HTTP Authorization header prefix, RFC 6750), not part of the token itself.
+- `wrapping_quotes_present` (`low`): the value was wrapped in quote characters, usually copied from a JSON body or `.env` file.
+- `whitespace_in_token` (`medium`): a space, tab, or line break inside or around the token; a JWT has no whitespace anywhere.
+
+**Structure:**
+- `jwt_malformed` (`high`): the cleaned value doesn't have exactly three dot-separated (`.`) parts, or a part doesn't decode as base64url + valid JSON. RFC 7515 §7.1 defines the Compact Serialization as exactly two delimiting period characters; RFC 7519 §7.2 step 1 requires "at least one period ('.') character," with malformed input rejected outright. This is `jsonwebtoken`'s `JsonWebTokenError: jwt malformed`, and `jose`'s `JWSInvalid` (`ERR_JWS_INVALID`).
+- `payload_not_object` (`medium`): the payload decoded to valid JSON that isn't a JSON object; RFC 7519 defines the Claims Set as a JSON object.
+
+**Header:**
+- `alg_missing` (`high`): `header.alg` is absent. RFC 7515 §4.1.1: "The alg... Header Parameter... MUST be present."
+- `alg_none` (`high`): `header.alg` is the literal `"none"`. RFC 7519 §6: an Unsecured JWT, "with the empty string for its JWS Signature value." The classic signature-stripping vulnerability: a verifier that accepts this trusts a payload with no real signature at all.
+- `alg_mismatch` (`high`): `header.alg` doesn't equal the algorithm you told the tool to expect. Signature verification always uses the token's own claimed `alg`, never your expected one: which is exactly what an algorithm-confusion attack exploits, so a real verifier must pin its expected algorithm rather than reading it from the token.
+- `kid_present_no_jwks` (`info`): `header.kid` names a specific signing key; if you're verifying against a JWKS endpoint (Auth0, Firebase, Cognito, Clerk), fetch the key whose `kid` matches. Using the wrong key (e.g. always the first one in the set) is a common cause of `invalid signature` right after a provider rotates its keys.
+
+**Timing claims** (RFC 7519 §4.1.4–§4.1.6), all NumericDate = seconds since the Unix epoch, checked against an adjustable clock-skew tolerance:
+- `token_expired` (`high`): `exp` is in the past. RFC 7519: "the current date/time MUST be before the expiration date/time... implementers MAY provide for some small leeway... to account for clock skew." This is `jsonwebtoken`'s `TokenExpiredError` (`message: 'jwt expired'`, with `expiredAt`), and `jose`'s `JWTExpired` (`ERR_JWT_EXPIRED`).
+- `exp_missing` (`low`): no `exp` claim at all; not required by the spec, but worth a second look unless intentional (a refresh token, a long-lived service key).
+- `not_yet_valid` (`medium`): `nbf` is in the future. RFC 7519: "the current date/time MUST be after or equal to the not-before date/time." `jsonwebtoken`'s `NotBeforeError` (`message: 'jwt not active'`, with `date`).
+- `iat_in_future` (`low`): `iat` is later than now. RFC 7519 §4.1.6 only says `iat` "can be used to determine the age of the JWT": it doesn't mandate rejection, so this is a clock-skew hint, not a hard failure.
+- `iat_after_exp` (`medium`): `iat` is after `exp`: internally inconsistent, usually a bug in whatever minted the token.
+- `exp_not_numeric` / `nbf_not_numeric` / `iat_not_numeric`: the claim is present but not a number; RFC 7519 requires NumericDate.
+
+**Issuer / audience** (RFC 7519 §4.1.1, §4.1.3), checked only when you supply an expected value:
+- `iss_mismatch` (`high`): `payload.iss` doesn't equal what you expected. `iss` is "a case-sensitive string": a trailing slash or `http` vs `https` is enough to fail. `jsonwebtoken`: `jwt issuer invalid. expected: [...]`; `jose`: `JWTClaimValidationFailed` (`ERR_JWT_CLAIM_VALIDATION_FAILED`, claim `iss`).
+- `iss_missing` / `aud_missing` (`medium`): you supplied an expected value but the claim is absent from the token.
+- `aud_mismatch` (`high`): `payload.aud` (a string, or an array of strings per RFC 7519 §4.1.3) doesn't contain your expected value. RFC 7519: "If the principal processing the claim does not identify itself with a value in the 'aud' claim... then the JWT MUST be rejected." `jsonwebtoken`: `jwt audience invalid. expected: [...]`; `jose`: `JWTClaimValidationFailed`. A very common real case: verifying a Supabase/Firebase access token against your own app name instead of the provider's fixed audience value.
+- `aud_invalid_type` (`medium`): `aud` is present but is neither a string nor an array of strings.
+
+**Signature**, verified with the browser's own WebCrypto: never a reimplementation:
+- `signature_missing` (`high`): `alg` is a real signing algorithm but the signature segment (part 3) is empty. `jsonwebtoken`'s `jwt.verify()` reports this as `jwt signature is required`.
+- `secret_public_key_mismatch` (`high`): an HS* algorithm with a pasted PEM/JWK, or an RS*/PS*/ES* algorithm with a pasted plain secret. HMAC verification needs the exact secret used to sign, never a keypair, and the reverse: a public key treated as an HMAC secret: is itself a known algorithm-confusion attack technique (a server that trusts the token's own `alg` can be handed an RS256 token re-signed as HS256 using its own RSA public key as the "secret").
+- `alg_unsupported` (`medium`): `alg` isn't one of HS256/384/512, RS256/384/512, PS256/384/512, ES256/384/512.
+- `key_alg_mismatch` (`medium`): the supplied key type doesn't match the algorithm family.
+- `signature_not_base64url` / `signature_check_error`: the signature segment, or the pasted key, isn't in the format the selected algorithm expects (e.g. a PEM that isn't SPKI `-----BEGIN PUBLIC KEY-----`, or a JWK missing required fields).
+- `signature_invalid` (`high`): verification ran and failed. This is `jsonwebtoken`'s `invalid signature`, and `jose`'s `JWSSignatureVerificationFailed` (`ERR_JWS_SIGNATURE_VERIFICATION_FAILED`). Most common causes, in order: the pasted key doesn't match the key that actually signed the token (a rotated secret, or the wrong project's JWT secret); the header or payload was re-encoded after signing (even reformatting whitespace before encoding changes the signed bytes); or a PEM with a mismatched header (a private key, or a certificate, pasted where a public key belongs).
+
+Signature verification uses `crypto.subtle.importKey('raw', ...)` for HMAC and `importKey('spki'|'jwk', ...)` for RSA/EC, then `subtle.verify()` against the exact `header.payload` signing input RFC 7515 §5.2 defines. ES256/384/512 signatures are verified in their raw JOSE `r‖s` concatenated form (not DER), matching what every JWT library produces.
+
+**Provider-shape heuristics** (pattern-matched from the decoded payload, not a network call):
+- `supabase_project_key_not_user_token` (`low`): `payload.role` is `anon` or `service_role` with no `sub`: this looks like a Supabase project API key (Project Settings → API), not a user's access token.
+- `firebase_custom_token_not_id_token` (`low`): `payload.uid` is present and `aud` targets `identitytoolkit.googleapis.com`: a Firebase custom token (minted server-side by the Admin SDK) that still needs to be exchanged client-side via `signInWithCustomToken()` before you get back a verifiable ID token.
+- `firebase_id_token_detected` (`info`): `iss` matches `https://securetoken.google.com/<project-id>`: points at the correct public-key endpoint (`https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com`) and reminds you to check `aud` against your exact Firebase project ID.
+
+## Who it's for
+
+Developers debugging JSON Web Tokens from Auth0, Supabase, Firebase, Cognito, Keycloak, Clerk, NextAuth, or their own `jsonwebtoken`/`jose` code: anyone with a token that "should" verify and needs to know precisely which claim, or which byte of the signature, is the problem.
+
+## How it works
+
+Static HTML plus one dependency-free JavaScript file, `doctor-jwt.js`. The page calls a single async pure function, `diagnose(config)`, entirely in your browser:
+
+```js
+import { diagnose } from './doctor-jwt.js';
+
+const result = await diagnose({
+  token: rawPastedToken,               // with or without "Bearer ", quotes, whitespace
+  expected: {
+    issuer: 'https://auth.example.com/',
+    audience: 'api://example',
+    algorithm: 'RS256',
+    clockSkewSeconds: 60,
+  },
+  key: {
+    type: 'rsa-public-pem',            // 'none' | 'hmac-secret' | 'rsa-public-pem' | 'jwk'
+    value: '-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----',
+  },
+});
+```
+
+Decoding, claim checks, and signature verification all run client-side using the browser's native WebCrypto API (`window.crypto.subtle`): no cryptography is reimplemented in JavaScript, and no request ever carries your token, secret, or key anywhere. Read `index.html` and `doctor-jwt.js` directly to verify.
+
+## Worked example
+
+Input: a token whose header claims `RS256`, checked against what looks like a plain HMAC secret instead of the app's actual RSA public key (a common paste mistake when copying the wrong value out of an `.env` file):
+
+```json
+{
+  "token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IjIwMjYtYSJ9...(payload)...(signature)",
+  "expected": { "issuer": "https://auth.example.com/", "audience": "api://example", "algorithm": "RS256", "clockSkewSeconds": 0 },
+  "key": { "type": "hmac-secret", "value": "a1b2c3d4e5f6..." }
+}
+```
+
+Decoded header/payload:
+
+```json
+{ "alg": "RS256", "typ": "JWT", "kid": "2026-a" }
+{ "iss": "https://auth.example.com/", "aud": "api://example", "sub": "user_123", "exp": 1893456000, "iat": 1893452400 }
+```
+
+Output:
+
+```json
+{
+  "status": "fail",
+  "summary": "1 blocking problem found. Most urgent: header.alg is \"RS256\" (asymmetric) but you supplied an HMAC secret. RS256 tokens are verified with the signer's public key (RSA/EC), never with a shared secret...",
+  "problems": [
+    {
+      "severity": "high",
+      "code": "secret_public_key_mismatch",
+      "message": "header.alg is \"RS256\" (asymmetric) but you supplied an HMAC secret. RS256 tokens are verified with the signer's public key (RSA/EC), never with a shared secret: pasting a secret here for an RS256 token cannot work, and treating an RSA public key as an HMAC secret (or vice versa) is itself a known \"algorithm confusion\" attack technique...",
+      "path": "key.type",
+      "fix": "Switch the key type to a public key (PEM or JWK) and paste the RSA public key that corresponds to whatever signed this token."
+    },
+    { "severity": "info", "code": "kid_present_no_jwks", "message": "header.kid is \"2026-a\"...", "path": "header.kid" }
+  ],
+  "signatureStatus": "not_checked",
+  "disclaimer": "Read-only, client-side analysis of the token and values you entered. The token is decoded and, if a key is supplied, its signature is verified entirely in your browser via the Web Crypto API: nothing is sent to a server. Not affiliated with Auth0, Supabase, Firebase, Cognito, Keycloak, Clerk, or any token issuer."
+}
+```
+
+Everything else about this token is fine: well-formed, not expired, `iss`/`aud` both present and correct: exactly the case most likely to get pasted into the wrong field by hand, since nothing else in the token hints that anything is wrong until the signature step specifically flags what kind of key it's looking at.
+
+## FAQ
+
+**Why does `jsonwebtoken` throw `jwt malformed` even though my token looks fine?**
+The token needs exactly three dot-separated parts, each one valid base64url with no padding, line breaks, or extra characters (RFC 7515 §2, §7.1). The most common causes: a stray newline or trailing space from copy-paste, a leftover `Bearer ` prefix pasted in along with the token itself, or surrounding quotes copied from a log line or a `curl -H "Authorization: ..."` command: JWT Doctor detects and strips all three before reporting anything else.
+
+**What does `alg: none` actually mean, and why is it always flagged high?**
+RFC 7519 §6 defines it as an explicitly unsecured JWT: no signature, empty signature value. It's valid per spec, but a server that decodes a JWT and trusts its claims without checking that `alg` is one it actually expects can be handed a token with `alg: none` and no real signature at all: historically one of the most common real-world JWT library vulnerabilities.
+
+**Why did my token fail with `TokenExpiredError` when `exp` looks like it's still in the future?**
+Check the units: `exp` in a JWT is seconds since the Unix epoch (RFC 7519's NumericDate), not milliseconds. A payload built with `Date.now()` instead of `Math.floor(Date.now() / 1000)` produces an `exp` about 1000x too large, which most verifiers read as effectively-forever in the future: or, if it overflows somewhere else in the stack, wraps to a date in the past.
+
+**What's the difference between `nbf` in the future and `iat` in the future?**
+`nbf` (RFC 7519 §4.1.5) is a hard rejection in every verifier that checks it: the token genuinely isn't valid yet. `iat` (§4.1.6) is informational only: the spec doesn't require any verifier to reject a token for it, so a slightly-future `iat` (usually just clock skew between the issuing and checking machines) is a low-severity hint, not a failure.
+
+**Why does the tool care whether I pasted a secret or a public key?**
+Because HS256 and RS256/ES256 keys aren't interchangeable, and pasting the wrong one is precisely the shape of the classic algorithm-confusion attack: if a server trusts the token's own `alg` header, an attacker can take a token meant to be RSA-signed, re-sign it as HS256 using the server's own RSA *public* key as the HMAC secret (public keys are, by definition, not secret), and the server's own `jwt.verify()` call: if it isn't pinned to an expected algorithm: happily accepts it. Both `jsonwebtoken` and `jose` mitigate this today by requiring an explicit `algorithms` allow-list on `verify()`, but it's still the single most-cited real-world JWT signature bug, which is why the tool flags a mismatched key shape (`secret_public_key_mismatch`) before it even tries to verify.
+
+**Does this tool call my identity provider's JWKS endpoint?**
+No: it never makes a network request with your token, secret, or key. If your token has a `kid` and you want signature verification, paste the matching public key or JWKS entry yourself; a `kid` with nothing supplied to resolve it against is flagged `info`, not an error, since a token can be entirely well-formed and unexpired while still needing an external key to verify.
+
+**Is `aud` allowed to be an array, or does it have to be a single string?**
+Either, per RFC 7519 §4.1.3: `aud` can be a single StringOrURI or a JSON array of them. The tool checks whether your expected audience value appears anywhere in it, matching how `jsonwebtoken`'s `audience` verify option and `jose`'s audience check both behave.
+
+**I pasted a Supabase key or a Firebase token and the checks don't make sense: why?**
+JWT Doctor recognizes a few provider-specific token shapes and flags them separately from generic checks: a Supabase project API key (`role: anon`/`service_role`, no `sub`) is not the same thing as a user's access token; a Firebase custom token (has `uid`, `aud` pointing at `identitytoolkit.googleapis.com`) still needs a client-side `signInWithCustomToken()` exchange before it becomes a verifiable ID token. These show up as low-severity or informational notes, not blocking errors.
+
+## Privacy
+
+No account, no login, no cookies for the tool itself, no server-side processing of your token, secret, or key. The only analytics are anonymous usage counts (event name + count, never token content) sent to a self-hosted Umami instance.
+
+## Links
+
+- Tool: https://arling.sk/jwt-doctor/
+- Short reference: https://arling.sk/jwt-doctor/llms.txt
+- Source code: https://github.com/AndryRoby/jwt-doctor
+- Sibling tool for Google OAuth's redirect_uri_mismatch: https://arling.sk/google-oauth-redirect-doctor/
+- Sibling tool for Supabase Auth redirects on the web: https://arling.sk/supabase-redirect-doctor/
+- Sibling tool for Stripe webhook signature verification: https://arling.sk/stripe-webhook-doctor/
+- Hub (more ARLing tools): https://arling.sk/
+
+## Sources
+
+- IETF RFC 7519: [JSON Web Token (JWT)](https://datatracker.ietf.org/doc/html/rfc7519): structure (§3), registered claims `iss`/`aud`/`exp`/`nbf`/`iat` (§4.1), validation steps (§7.2), Unsecured JWTs / `alg: none` (§6).
+- IETF RFC 7515: [JSON Web Signature (JWS)](https://datatracker.ietf.org/doc/html/rfc7515): Compact Serialization (§7.1), base64url encoding rules (§2), the `alg` header parameter (§4.1.1), signature validation (§5.2).
+- `auth0/node-jsonwebtoken`: [error messages and codes](https://github.com/auth0/node-jsonwebtoken#errors) thrown by `jwt.verify()` (`JsonWebTokenError`, `TokenExpiredError`, `NotBeforeError`).
+- `panva/jose`: [error classes](https://github.com/panva/jose) (`JWSSignatureVerificationFailed`, `JWTExpired`, `JWTClaimValidationFailed`, `JWSInvalid`, `JWTInvalid`, `JWKSNoMatchingKey`, `JOSEAlgNotAllowed`).
+
+## Contact
+
+Built by ARLing s. r. o. (Bratislava, Slovakia). andrej@arling.sk

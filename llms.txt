@@ -1,0 +1,43 @@
+# JWT Doctor: decode and diagnose a JSON Web Token
+
+> Free, client-side checker that decodes a JWT, flags exactly what's wrong with it (malformed structure, `alg: none`, algorithm mismatch, expired/not-yet-valid, wrong issuer or audience), and verifies its signature against a pasted HS256 secret or RS256/RS384/RS512/PS256/PS384/PS512/ES256/ES384/ES512 public key.
+
+Paste any JWT (with or without a `Bearer ` prefix, quotes, or stray whitespace, all stripped automatically) and, optionally, the secret or public key it should have been signed with. It decodes the header and payload, runs every structural and claim check below, and: if you gave it a key: verifies the signature itself using the browser's own WebCrypto API (`crypto.subtle`). Nothing is sent anywhere: not the token, not the secret, not the key.
+
+## What it checks
+
+- Structural validity: exactly three dot-separated base64url parts, valid JSON in both header and payload (`jwt_malformed`): and paste artifacts that otherwise masquerade as malformed input: a leading `Bearer ` prefix, wrapping quotes, or embedded whitespace, each flagged and stripped before decoding.
+- `header.alg` missing, or the literal `"none"` (RFC 7519 §6, Unsecured JWT: the classic signature-stripping attack).
+- `header.alg` not equal to the algorithm you told it to expect (`alg_mismatch`): the algorithm-confusion attack surface.
+- `header.kid` present with no matching JWKS entry supplied (informational, not an error).
+- `exp` in the past, with an adjustable clock-skew allowance (`token_expired`); `nbf` in the future (`not_yet_valid`); `iat` in the future (`iat_in_future`, low severity: a clock-skew hint, not a rejection) or after `exp` (internally inconsistent).
+- `iss` / `aud` mismatches against values you supply, including RFC 7519's rule that `aud` may be a single string or an array.
+- Signature verification via native WebCrypto: HMAC (HS256/384/512) against a pasted shared secret; RSA-PKCS1 (RS256/384/512), RSA-PSS (PS256/384/512), and ECDSA (ES256/384/512) against a pasted PEM or JWK public key.
+- Secret-vs-public-key confusion: an HS* algorithm with a pasted PEM/JWK, or an RS*/PS*/ES* algorithm with a pasted plain secret: the shape of the well-known RS256→HS256 algorithm-confusion attack.
+- Provider-shape heuristics: a Supabase project API key (`role: anon`/`service_role`, no `sub`) pasted where a user access token was expected; a Firebase custom token (has `uid`, `aud` targeting `identitytoolkit.googleapis.com`) pasted where an ID token was expected; a Firebase ID token detected by its `securetoken.google.com` issuer, with a pointer to the right public-key endpoint.
+
+## Who it's for
+
+Developers debugging JSON Web Tokens from Auth0, Supabase, Firebase, Cognito, Keycloak, Clerk, NextAuth, or their own `jsonwebtoken`/`jose` code: anyone staring at a token that "should" work and needs to know exactly which claim or which byte of the signature doesn't.
+
+## How it works
+
+Static HTML plus one dependency-free JavaScript file, `doctor-jwt.js`, exporting a single async function `diagnose(config)`. All decoding, claim checks, and signature verification run in your browser via native WebCrypto; the tool has no backend and makes no request that carries your token, secret, or key anywhere.
+
+## Privacy
+
+No account, no login, no cookies for the tool itself, no server-side processing of your token or key. The only analytics are anonymous usage counts (event name + count, never token content) sent to a self-hosted Umami instance.
+
+## Links
+
+- Tool: https://arling.sk/jwt-doctor/
+- Full reference (worked example + FAQ): https://arling.sk/jwt-doctor/llms-full.txt
+- Source code: https://github.com/AndryRoby/jwt-doctor
+- Sibling tool for Google OAuth's redirect_uri_mismatch: https://arling.sk/google-oauth-redirect-doctor/
+- Sibling tool for Supabase Auth redirects on the web: https://arling.sk/supabase-redirect-doctor/
+- Sibling tool for Stripe webhook signature verification: https://arling.sk/stripe-webhook-doctor/
+- Hub (more ARLing tools): https://arling.sk/
+
+## Contact
+
+Built by ARLing s. r. o. (Bratislava, Slovakia). andrej@arling.sk

@@ -1,0 +1,12 @@
+{
+  "name": "jwt-doctor",
+  "version": "1.0.0",
+  "description": "JWT Doctor — free, client-side diagnostic for \"jwt malformed\", \"invalid signature\", \"jwt expired\" and other JWT verification errors across Auth0, Supabase, Firebase, Cognito, Keycloak, Clerk, NextAuth, jsonwebtoken and jose.",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "scripts": {
+    "test": "node tests.mjs"
+  },
+  "author": "ARLing s. r. o. <andrej@arling.sk>"
+}
