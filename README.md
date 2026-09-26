@@ -111,7 +111,7 @@ The rules this tool checks are drawn from:
 
 ## Report a problem
 
-Found a JWT bug this tool doesn't catch, or a check that flags something that's actually fine? Open an issue: https://github.com/AndryRoby/jwt-doctor/issues, or write to andrej@arling.sk. Please redact real tokens, secrets, and keys before posting; issues are public.
+Found a JWT bug this tool doesn't catch, or a check that flags something that's actually fine? Open an issue: https://github.com/AndryRoby/jwt-doctor/issues, or write to support@arling.sk. Please redact real tokens, secrets, and keys before posting; issues are public.
 
 ## License
 
@@ -119,7 +119,7 @@ All rights reserved, see [LICENSE-NOTICE.md](LICENSE-NOTICE.md). Reading the sou
 
 ---
 
-ARLing s. r. o., Bratislava, Slovakia. andrej@arling.sk
+ARLing s. r. o., Bratislava, Slovakia. support@arling.sk
 
 Hub (more free tools): https://arling.sk/
 
