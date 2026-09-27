@@ -4,7 +4,7 @@
 <script src="/style/vzhlad.js?v=8a4019ae"></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://server.invalid 'sha256-7tLQ7WDhETdbx80yFeeDO/sYQCHz6jqvEk7vTezkQiI=' 'sha256-NthpjOMIPLsOGywIWgKUpRpoXoACDVGWzK2CEVYA6Lo=' 'sha256-+C0ox4nDE2d2jaBDpx5CbRJoxvOzPxZQmWSjTVcgwCs=' 'sha256-0vk7nKvK/m5jcNp70HeB0Q/cXnjHLGGVhYawCC8h9Vo='; connect-src 'self' https://server.invalid; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://server.invalid 'sha256-7tLQ7WDhETdbx80yFeeDO/sYQCHz6jqvEk7vTezkQiI=' 'sha256-6+/jhEQz+4Nt6a/3d2Pf0ueHbW1kLN4vvkrbYMhaTuU=' 'sha256-+C0ox4nDE2d2jaBDpx5CbRJoxvOzPxZQmWSjTVcgwCs=' 'sha256-0vk7nKvK/m5jcNp70HeB0Q/cXnjHLGGVhYawCC8h9Vo='; connect-src 'self' https://server.invalid; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="dark">
 <link rel="preconnect" href="https://server.invalid" crossorigin>
 <meta name="theme-color" content="#0a0908">
@@ -71,7 +71,7 @@
       "name": "What does \"jwt malformed\" mean?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "The string you handed to jwt.verify() (or jose's jwtVerify()) is not a valid JWS Compact Serialization: RFC 7515 defines a JWT as exactly three base64url segments joined by two period characters, header.payload.signature. \"jwt malformed\" fires when that shape is broken: a copy-paste dropped a character, a \"Bearer \" prefix or surrounding quotes got included, the value was line-wrapped, or one of the segments is not valid base64url or doesn't decode to JSON. It is a structural error, checked before signature or claims."
+        "text": "The string you handed to jwt.verify() (or jose's jwtVerify()) is not a valid JWS Compact Serialization: RFC 7515 defines a JWT as exactly three base64url segments joined by two period characters, header.payload.signature. jsonwebtoken says \"jwt malformed\" only when the value does not split into exactly three parts at the periods: the word Bearer alone, a secret or the text null passed as the token, or a five-part JWE. When there are three parts but a segment is not valid base64url or not JSON, for example because a \"Bearer \" prefix, quotes or a line break came along, it says \"invalid token\" instead. Both are structural errors, checked before signature or claims."
       }
     },
     {
@@ -563,7 +563,7 @@
     <ol class="rules">
       <li class="r d1">
         <b>Not three parts.</b>
-        <p>A JWT is <span class="mono">header.payload.signature</span>: exactly two dots, each part valid base64url JSON. A <span class="mono">"Bearer "</span> prefix, wrapping quotes, or a stray newline from copy-paste all produce <span class="mono">"jwt malformed"</span> before verification even starts.</p>
+        <p>A JWT is <span class="mono">header.payload.signature</span>: exactly two dots, each part valid base64url JSON. Anything other than three dot-separated parts gets <span class="mono">"jwt malformed"</span> before verification even starts. A leftover <span class="mono">"Bearer "</span> prefix, wrapping quotes or a stray newline usually keep three parts but break the base64url decoding, and jsonwebtoken then reports <span class="mono">"invalid token"</span>.</p>
       </li>
       <li class="r d2">
         <b>Wrong key, wrong algorithm.</b>
@@ -656,7 +656,7 @@
 
     <details class="r d1">
       <summary>What does "jwt malformed" mean?</summary>
-      <p>The string you handed to <span class="mono">jwt.verify()</span> (or jose's <span class="mono">jwtVerify()</span>) is not a valid JWS Compact Serialization: RFC 7515 defines a JWT as exactly three base64url segments joined by two period characters, <span class="mono">header.payload.signature</span>. "jwt malformed" fires when that shape is broken: a copy-paste dropped a character, a "Bearer " prefix or surrounding quotes got included, the value was line-wrapped, or one of the segments is not valid base64url or doesn't decode to JSON. It is a structural error, checked before signature or claims.</p>
+      <p>The string you handed to <span class="mono">jwt.verify()</span> (or jose's <span class="mono">jwtVerify()</span>) is not a valid JWS Compact Serialization: RFC 7515 defines a JWT as exactly three base64url segments joined by two period characters, <span class="mono">header.payload.signature</span>. jsonwebtoken says "jwt malformed" only when the value does not split into exactly three parts at the periods: the word Bearer alone, a secret or the text null passed as the token, or a five-part JWE. When there are three parts but a segment is not valid base64url or not JSON, for example because a "Bearer " prefix, quotes or a line break came along, it says "invalid token" instead. Both are structural errors, checked before signature or claims.</p>
     </details>
     <details class="r d2">
       <summary>Why do I get "invalid signature" although the secret is right?</summary>

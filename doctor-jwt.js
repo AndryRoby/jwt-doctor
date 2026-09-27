@@ -377,7 +377,7 @@ export async function diagnose(config) {
     pushProblem(problems, {
       severity: 'medium',
       code: 'bearer_prefix_present',
-      message: 'The pasted value starts with "Bearer " (an HTTP Authorization header prefix, RFC 6750), which is not part of the token itself. It was stripped before decoding below, but make sure your own code never passes the "Bearer " prefix into jwt.verify() / jwtVerify(): that would also produce "jwt malformed".',
+      message: 'The pasted value starts with "Bearer " (an HTTP Authorization header prefix, RFC 6750), which is not part of the token itself. It was stripped before decoding below, but make sure your own code never passes the "Bearer " prefix into jwt.verify() / jwtVerify(): jsonwebtoken would fail to decode it and report "invalid token" (or "jwt malformed" if only the word Bearer reaches it).',
       path: 'token',
       value: rawToken.slice(0, 40),
       fix: cleaned,
@@ -396,7 +396,7 @@ export async function diagnose(config) {
     pushProblem(problems, {
       severity: 'medium',
       code: 'whitespace_in_token',
-      message: 'The pasted value contains whitespace (a space, tab, or line break) inside or around the token. A JWT has no whitespace anywhere: this is usually line-wrapping from a terminal, log line, or copy-paste. It was stripped before decoding below, but the same whitespace in your real code would produce "jwt malformed".',
+      message: 'The pasted value contains whitespace (a space, tab, or line break) inside or around the token. A JWT has no whitespace anywhere: this is usually line-wrapping from a terminal, log line, or copy-paste. It was stripped before decoding below, but the same whitespace in your real code would break decoding, and jsonwebtoken would report "invalid token".',
       path: 'token',
       fix: cleaned,
     });
@@ -426,10 +426,10 @@ export async function diagnose(config) {
   const payloadDec = decodeBase64UrlJson(payloadPart, 'the payload (part 2)');
 
   if (!headerDec.ok) {
-    pushProblem(problems, { severity: 'high', code: 'jwt_malformed', message: `Header decode failed: ${headerDec.error}. This is what jsonwebtoken reports as "jwt malformed" / "invalid token".`, path: 'token' });
+    pushProblem(problems, { severity: 'high', code: 'jwt_malformed', message: `Header decode failed: ${headerDec.error}. jsonwebtoken reports this as "invalid token" (it says "jwt malformed" only when the value does not have three parts).`, path: 'token' });
   }
   if (!payloadDec.ok) {
-    pushProblem(problems, { severity: 'high', code: 'jwt_malformed', message: `Payload decode failed: ${payloadDec.error}. This is what jsonwebtoken reports as "jwt malformed" / "invalid token".`, path: 'token' });
+    pushProblem(problems, { severity: 'high', code: 'jwt_malformed', message: `Payload decode failed: ${payloadDec.error}. jsonwebtoken reports this as "invalid token" (it says "jwt malformed" only when the value does not have three parts).`, path: 'token' });
   }
   if (!headerDec.ok || !payloadDec.ok) {
     return finish({ status: 'fail', problems, fixes, checklist, expected, decoded });
